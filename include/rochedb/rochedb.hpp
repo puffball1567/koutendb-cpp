@@ -16,6 +16,18 @@ namespace rochedb {
 
 using Id = roche_id;
 
+enum class PayloadCodec {
+  Raw = ROCHE_CODEC_RAW,
+  Json = ROCHE_CODEC_JSON,
+  Nif = ROCHE_CODEC_NIF,
+  Bif = ROCHE_CODEC_BIF,
+};
+
+struct EncodedPayload {
+  std::vector<std::uint8_t> payload;
+  PayloadCodec codec = PayloadCodec::Raw;
+};
+
 struct Hit {
   Id id{};
   double score = 0.0;
@@ -41,6 +53,24 @@ class Error : public std::runtime_error {
 };
 
 inline int abiVersion() { return roche_abi_version(); }
+
+inline int codecCode(PayloadCodec codec) {
+  return static_cast<int>(codec);
+}
+
+inline PayloadCodec codecFromCode(int codec) {
+  switch (codec) {
+    case ROCHE_CODEC_JSON:
+      return PayloadCodec::Json;
+    case ROCHE_CODEC_NIF:
+      return PayloadCodec::Nif;
+    case ROCHE_CODEC_BIF:
+      return PayloadCodec::Bif;
+    case ROCHE_CODEC_RAW:
+    default:
+      return PayloadCodec::Raw;
+  }
+}
 
 inline std::string lastError(const char* fallback) {
   const char* err = roche_last_error();
@@ -160,6 +190,40 @@ class Db {
     return id;
   }
 
+  Id putCodec(std::string_view ring, std::string_view payload,
+              PayloadCodec codec) {
+    return putCodec(ring, reinterpret_cast<const std::uint8_t*>(payload.data()),
+                    payload.size(), codec);
+  }
+
+  Id putCodec(std::string_view ring, const std::vector<std::uint8_t>& payload,
+              PayloadCodec codec) {
+    return putCodec(ring, payload.data(), payload.size(), codec);
+  }
+
+  Id putCodec(std::string_view ring, const std::uint8_t* data, std::size_t len,
+              PayloadCodec codec) {
+    Id id{};
+    std::string r(ring);
+    if (roche_put_codec(checked(), r.c_str(), data, len, codecCode(codec),
+                        &id) != ROCHE_OK) {
+      throw Error(lastError("putCodec failed"));
+    }
+    return id;
+  }
+
+  Id putJson(std::string_view ring, std::string_view json) {
+    return putCodec(ring, json, PayloadCodec::Json);
+  }
+
+  Id putNif(std::string_view ring, std::string_view nif) {
+    return putCodec(ring, nif, PayloadCodec::Nif);
+  }
+
+  Id putBif(std::string_view ring, const std::vector<std::uint8_t>& bif) {
+    return putCodec(ring, bif, PayloadCodec::Bif);
+  }
+
   Id putVec(std::string_view ring, std::string_view payload,
             const std::vector<float>& vec) {
     return putVec(ring, reinterpret_cast<const std::uint8_t*>(payload.data()),
@@ -175,6 +239,40 @@ class Db {
       throw Error(lastError("putVec failed"));
     }
     return id;
+  }
+
+  Id putVecCodec(std::string_view ring, std::string_view payload,
+                 const std::vector<float>& vec, PayloadCodec codec) {
+    return putVecCodec(ring,
+                       reinterpret_cast<const std::uint8_t*>(payload.data()),
+                       payload.size(), vec, codec);
+  }
+
+  Id putVecCodec(std::string_view ring, const std::uint8_t* data,
+                 std::size_t len, const std::vector<float>& vec,
+                 PayloadCodec codec) {
+    Id id{};
+    std::string r(ring);
+    if (roche_put_vec_codec(checked(), r.c_str(), data, len, codecCode(codec),
+                            vec.data(), vec.size(), &id) != ROCHE_OK) {
+      throw Error(lastError("putVecCodec failed"));
+    }
+    return id;
+  }
+
+  Id putJsonVec(std::string_view ring, std::string_view json,
+                const std::vector<float>& vec) {
+    return putVecCodec(ring, json, vec, PayloadCodec::Json);
+  }
+
+  Id putNifVec(std::string_view ring, std::string_view nif,
+               const std::vector<float>& vec) {
+    return putVecCodec(ring, nif, vec, PayloadCodec::Nif);
+  }
+
+  Id putBifVec(std::string_view ring, const std::vector<std::uint8_t>& bif,
+               const std::vector<float>& vec) {
+    return putVecCodec(ring, bif.data(), bif.size(), vec, PayloadCodec::Bif);
   }
 
   std::optional<std::vector<std::uint8_t>> get(Id id) const {
@@ -194,6 +292,18 @@ class Db {
       return std::nullopt;
     }
     return std::string(bytes->begin(), bytes->end());
+  }
+
+  std::optional<EncodedPayload> getEncoded(Id id) const {
+    std::size_t len = 0;
+    int codec = ROCHE_CODEC_RAW;
+    void* ptr = roche_get_codec(checked(), id, &len, &codec);
+    if (ptr == nullptr) {
+      return std::nullopt;
+    }
+    EncodedPayload out{copyBytes(ptr, len), codecFromCode(codec)};
+    roche_free(ptr);
+    return out;
   }
 
   std::vector<std::optional<std::vector<std::uint8_t>>> batchGet(
@@ -237,6 +347,34 @@ class Db {
       return std::nullopt;
     }
     return std::string(bytes->begin(), bytes->end());
+  }
+
+  std::string readRingJson(std::string_view ring,
+                           std::string_view filterJson = "{}",
+                           std::string_view selection = {},
+                           int limit = 100,
+                           std::string_view cursor = {},
+                           bool pagination = false,
+                           int page = 1,
+                           int pageLimit = 20,
+                           std::string_view sortField = {},
+                           bool sortDesc = true) const {
+    std::string r(ring);
+    std::string f(filterJson);
+    std::string s(selection);
+    std::string c(cursor);
+    std::string sort(sortField);
+    std::size_t len = 0;
+    void* ptr = roche_read_ring_json(checked(), r.c_str(), f.c_str(), s.c_str(),
+                                     limit, c.c_str(), pagination ? 1 : 0,
+                                     page, pageLimit, sort.c_str(),
+                                     sortDesc ? 1 : 0, &len);
+    if (ptr == nullptr) {
+      throw Error(lastError("readRingJson failed"));
+    }
+    std::string out(static_cast<char*>(ptr), len);
+    roche_free(ptr);
+    return out;
   }
 
   RetrieveResult retrieve(const std::vector<float>& vec,
@@ -316,4 +454,3 @@ class Db {
 };
 
 }  // namespace rochedb
-
