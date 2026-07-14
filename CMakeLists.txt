@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(rochedb_cpp VERSION 0.1.0 LANGUAGES CXX)
+project(rochedb_cpp VERSION 0.1.1 LANGUAGES CXX)
 
 add_library(rochedb_cpp INTERFACE)
 add_library(RocheDB::cpp ALIAS rochedb_cpp)

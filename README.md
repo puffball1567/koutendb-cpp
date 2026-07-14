@@ -8,17 +8,20 @@ in a separate Unreal plugin.
 
 ## Status
 
-- package version: `0.1.0`
+- package version: `0.1.1`
 - license: Apache-2.0
 - mode: header-only C++ wrapper over `librochedb.so`
-- core ABI: RocheDB C ABI version `1`
+- core ABI: RocheDB C ABI version `2`
 
 Implemented:
 
 - embedded `open` / `openDir`
 - authenticated cluster `connectAuth`
 - `put` / `putVec`
-- `get` / `batchGet`
+- codec-aware `putJson` / `putNif` / `putBif`
+- codec-aware vector writes: `putJsonVec` / `putNifVec` / `putBifVec`
+- `get` / `getEncoded` / `batchGet`
+- ring reads through `readRingJson`
 - selection `query`
 - vector `retrieve`
 - `atlas`
@@ -81,12 +84,15 @@ int main() {
   auto db = rochedb::Db::openDir("data", 8);
   db.setRingDescription("docs/japan", "Japanese documentation");
 
-  auto id = db.put("docs/japan", R"({"title":"hello"})");
-  auto payload = db.getString(id);
+  auto id = db.putJson("docs/japan", R"({"title":"hello"})");
+  auto payload = db.getEncoded(id);
 
   if (payload) {
-    std::cout << *payload << "\n";
+    std::cout << std::string(payload->payload.begin(), payload->payload.end())
+              << "\n";
   }
+
+  std::cout << db.readRingJson("docs/japan", "{}", "{ title }", 10) << "\n";
 }
 ```
 
