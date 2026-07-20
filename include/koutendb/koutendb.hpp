@@ -10,17 +10,17 @@
 #include <utility>
 #include <vector>
 
-#include "rochedb.h"
+#include "koutendb.h"
 
-namespace rochedb {
+namespace koutendb {
 
-using Id = roche_id;
+using Id = kouten_id;
 
 enum class PayloadCodec {
-  Raw = ROCHE_CODEC_RAW,
-  Json = ROCHE_CODEC_JSON,
-  Nif = ROCHE_CODEC_NIF,
-  Bif = ROCHE_CODEC_BIF,
+  Raw = KOUTEN_CODEC_RAW,
+  Json = KOUTEN_CODEC_JSON,
+  Nif = KOUTEN_CODEC_NIF,
+  Bif = KOUTEN_CODEC_BIF,
 };
 
 struct EncodedPayload {
@@ -52,7 +52,7 @@ class Error : public std::runtime_error {
   explicit Error(const std::string& message) : std::runtime_error(message) {}
 };
 
-inline int abiVersion() { return roche_abi_version(); }
+inline int abiVersion() { return kouten_abi_version(); }
 
 inline int codecCode(PayloadCodec codec) {
   return static_cast<int>(codec);
@@ -60,20 +60,20 @@ inline int codecCode(PayloadCodec codec) {
 
 inline PayloadCodec codecFromCode(int codec) {
   switch (codec) {
-    case ROCHE_CODEC_JSON:
+    case KOUTEN_CODEC_JSON:
       return PayloadCodec::Json;
-    case ROCHE_CODEC_NIF:
+    case KOUTEN_CODEC_NIF:
       return PayloadCodec::Nif;
-    case ROCHE_CODEC_BIF:
+    case KOUTEN_CODEC_BIF:
       return PayloadCodec::Bif;
-    case ROCHE_CODEC_RAW:
+    case KOUTEN_CODEC_RAW:
     default:
       return PayloadCodec::Raw;
   }
 }
 
 inline std::string lastError(const char* fallback) {
-  const char* err = roche_last_error();
+  const char* err = kouten_last_error();
   if (err != nullptr && err[0] != '\0') {
     return std::string(err);
   }
@@ -93,18 +93,18 @@ class Db {
   Db() = default;
 
   static Db open(int nodes = 8) {
-    roche_init();
-    return Db(roche_open(nodes));
+    kouten_init();
+    return Db(kouten_open(nodes));
   }
 
   static Db openDir(std::string_view dir, int nodes = 8) {
-    roche_init();
-    return Db(roche_open_dir(nodes, std::string(dir).c_str()));
+    kouten_init();
+    return Db(kouten_open_dir(nodes, std::string(dir).c_str()));
   }
 
   static Db connect(std::string_view peers) {
-    roche_init();
-    return Db(roche_connect(std::string(peers).c_str()));
+    kouten_init();
+    return Db(kouten_connect(std::string(peers).c_str()));
   }
 
   static Db connectAuth(std::string_view peers,
@@ -113,15 +113,50 @@ class Db {
                         std::string_view authToken = {},
                         std::string_view secretKey = {},
                         std::string_view galaxy = {}) {
-    roche_init();
+    kouten_init();
     std::string p(peers);
     std::string u(username);
     std::string pw(password);
     std::string token(authToken);
     std::string secret(secretKey);
     std::string g(galaxy);
-    return Db(roche_connect_auth(p.c_str(), u.c_str(), pw.c_str(), token.c_str(),
+    return Db(kouten_connect_auth(p.c_str(), u.c_str(), pw.c_str(), token.c_str(),
                                  secret.c_str(), g.c_str()));
+  }
+
+  // Authenticated cluster connection with TLS. Enabling TLS requires an
+  // KoutenDB core built with -d:ssl.
+  //
+  // A tlsCaFile verifies the server against a CA or self-signed certificate PEM
+  // with verification left on, which is the right way to reach a server with a
+  // private CA or self-signed certificate.
+  //
+  // tlsInsecureSkipVerify disables certificate verification entirely. The
+  // connection is then encrypted but unauthenticated and trivially
+  // impersonable, so it is for local smoke tests only — never a production
+  // server. Prefer a tlsCaFile for self-signed certificates.
+  static Db connectAuthTls(std::string_view peers,
+                           std::string_view username = {},
+                           std::string_view password = {},
+                           std::string_view authToken = {},
+                           std::string_view secretKey = {},
+                           std::string_view galaxy = {},
+                           std::string_view tlsCaFile = {},
+                           std::string_view tlsServerName = {},
+                           bool tlsInsecureSkipVerify = false) {
+    kouten_init();
+    std::string p(peers);
+    std::string u(username);
+    std::string pw(password);
+    std::string token(authToken);
+    std::string secret(secretKey);
+    std::string g(galaxy);
+    std::string caFile(tlsCaFile);
+    std::string serverName(tlsServerName);
+    return Db(kouten_connect_auth_tls(p.c_str(), u.c_str(), pw.c_str(),
+                                        token.c_str(), secret.c_str(), g.c_str(),
+                                        1, caFile.c_str(), serverName.c_str(),
+                                        tlsInsecureSkipVerify ? 1 : 0));
   }
 
   Db(const Db&) = delete;
@@ -141,25 +176,25 @@ class Db {
 
   void close() noexcept {
     if (handle_ != nullptr) {
-      roche_close(handle_);
+      kouten_close(handle_);
       handle_ = nullptr;
     }
   }
 
-  double now() const { return roche_now(checked()); }
+  double now() const { return kouten_now(checked()); }
 
-  void advance(double dt) { roche_advance(checked(), dt); }
+  void advance(double dt) { kouten_advance(checked(), dt); }
 
   void configureRing(std::string_view ring, double period) {
     std::string r(ring);
-    if (roche_ring_configure(checked(), r.c_str(), period) != ROCHE_OK) {
+    if (kouten_ring_configure(checked(), r.c_str(), period) != KOUTEN_OK) {
       throw Error(lastError("failed to configure ring"));
     }
   }
 
   void setGalaxyDescription(std::string_view description) {
     std::string d(description);
-    if (roche_set_galaxy_description(checked(), d.c_str()) != ROCHE_OK) {
+    if (kouten_set_galaxy_description(checked(), d.c_str()) != KOUTEN_OK) {
       throw Error(lastError("failed to set galaxy description"));
     }
   }
@@ -167,7 +202,7 @@ class Db {
   void setRingDescription(std::string_view ring, std::string_view description) {
     std::string r(ring);
     std::string d(description);
-    if (roche_set_ring_description(checked(), r.c_str(), d.c_str()) != ROCHE_OK) {
+    if (kouten_set_ring_description(checked(), r.c_str(), d.c_str()) != KOUTEN_OK) {
       throw Error(lastError("failed to set ring description"));
     }
   }
@@ -184,7 +219,7 @@ class Db {
   Id put(std::string_view ring, const std::uint8_t* data, std::size_t len) {
     Id id{};
     std::string r(ring);
-    if (roche_put(checked(), r.c_str(), data, len, &id) != ROCHE_OK) {
+    if (kouten_put(checked(), r.c_str(), data, len, &id) != KOUTEN_OK) {
       throw Error(lastError("put failed"));
     }
     return id;
@@ -205,8 +240,8 @@ class Db {
               PayloadCodec codec) {
     Id id{};
     std::string r(ring);
-    if (roche_put_codec(checked(), r.c_str(), data, len, codecCode(codec),
-                        &id) != ROCHE_OK) {
+    if (kouten_put_codec(checked(), r.c_str(), data, len, codecCode(codec),
+                        &id) != KOUTEN_OK) {
       throw Error(lastError("putCodec failed"));
     }
     return id;
@@ -234,8 +269,8 @@ class Db {
             const std::vector<float>& vec) {
     Id id{};
     std::string r(ring);
-    if (roche_put_vec(checked(), r.c_str(), data, len, vec.data(), vec.size(),
-                      &id) != ROCHE_OK) {
+    if (kouten_put_vec(checked(), r.c_str(), data, len, vec.data(), vec.size(),
+                      &id) != KOUTEN_OK) {
       throw Error(lastError("putVec failed"));
     }
     return id;
@@ -253,8 +288,8 @@ class Db {
                  PayloadCodec codec) {
     Id id{};
     std::string r(ring);
-    if (roche_put_vec_codec(checked(), r.c_str(), data, len, codecCode(codec),
-                            vec.data(), vec.size(), &id) != ROCHE_OK) {
+    if (kouten_put_vec_codec(checked(), r.c_str(), data, len, codecCode(codec),
+                            vec.data(), vec.size(), &id) != KOUTEN_OK) {
       throw Error(lastError("putVecCodec failed"));
     }
     return id;
@@ -277,12 +312,12 @@ class Db {
 
   std::optional<std::vector<std::uint8_t>> get(Id id) const {
     std::size_t len = 0;
-    void* ptr = roche_get(checked(), id, &len);
+    void* ptr = kouten_get(checked(), id, &len);
     if (ptr == nullptr) {
       return std::nullopt;
     }
     std::vector<std::uint8_t> out = copyBytes(ptr, len);
-    roche_free(ptr);
+    kouten_free(ptr);
     return out;
   }
 
@@ -296,29 +331,29 @@ class Db {
 
   std::optional<EncodedPayload> getEncoded(Id id) const {
     std::size_t len = 0;
-    int codec = ROCHE_CODEC_RAW;
-    void* ptr = roche_get_codec(checked(), id, &len, &codec);
+    int codec = KOUTEN_CODEC_RAW;
+    void* ptr = kouten_get_codec(checked(), id, &len, &codec);
     if (ptr == nullptr) {
       return std::nullopt;
     }
     EncodedPayload out{copyBytes(ptr, len), codecFromCode(codec)};
-    roche_free(ptr);
+    kouten_free(ptr);
     return out;
   }
 
   std::vector<std::optional<std::vector<std::uint8_t>>> batchGet(
       const std::vector<Id>& ids) const {
-    roche_batch_result* result = roche_batch_get(checked(), ids.data(), ids.size());
+    kouten_batch_result* result = kouten_batch_get(checked(), ids.data(), ids.size());
     if (result == nullptr) {
       throw Error(lastError("batchGet failed"));
     }
-    std::unique_ptr<roche_batch_result, decltype(&roche_batch_get_free)> guard(
-        result, roche_batch_get_free);
+    std::unique_ptr<kouten_batch_result, decltype(&kouten_batch_get_free)> guard(
+        result, kouten_batch_get_free);
 
     std::vector<std::optional<std::vector<std::uint8_t>>> out;
     out.reserve(result->len);
     for (std::size_t i = 0; i < result->len; ++i) {
-      const roche_value& value = result->values[i];
+      const kouten_value& value = result->values[i];
       if (value.data == nullptr) {
         out.push_back(std::nullopt);
       } else {
@@ -332,12 +367,12 @@ class Db {
                                                 std::string_view selection) const {
     std::string s(selection);
     std::size_t len = 0;
-    void* ptr = roche_query(checked(), id, s.c_str(), &len);
+    void* ptr = kouten_query(checked(), id, s.c_str(), &len);
     if (ptr == nullptr) {
       return std::nullopt;
     }
     std::vector<std::uint8_t> out = copyBytes(ptr, len);
-    roche_free(ptr);
+    kouten_free(ptr);
     return out;
   }
 
@@ -365,7 +400,7 @@ class Db {
     std::string c(cursor);
     std::string sort(sortField);
     std::size_t len = 0;
-    void* ptr = roche_read_ring_json(checked(), r.c_str(), f.c_str(), s.c_str(),
+    void* ptr = kouten_read_ring_json(checked(), r.c_str(), f.c_str(), s.c_str(),
                                      limit, c.c_str(), pagination ? 1 : 0,
                                      page, pageLimit, sort.c_str(),
                                      sortDesc ? 1 : 0, &len);
@@ -373,7 +408,7 @@ class Db {
       throw Error(lastError("readRingJson failed"));
     }
     std::string out(static_cast<char*>(ptr), len);
-    roche_free(ptr);
+    kouten_free(ptr);
     return out;
   }
 
@@ -383,14 +418,14 @@ class Db {
                           int topRings = 50,
                           int focus = 3) const {
     std::string r(ring);
-    roche_retrieve_result* result =
-        roche_retrieve(checked(), vec.data(), vec.size(), r.c_str(), budget,
+    kouten_retrieve_result* result =
+        kouten_retrieve(checked(), vec.data(), vec.size(), r.c_str(), budget,
                        topRings, focus);
     if (result == nullptr) {
       throw Error(lastError("retrieve failed"));
     }
-    std::unique_ptr<roche_retrieve_result, decltype(&roche_retrieve_free)> guard(
-        result, roche_retrieve_free);
+    std::unique_ptr<kouten_retrieve_result, decltype(&kouten_retrieve_free)> guard(
+        result, kouten_retrieve_free);
 
     RetrieveResult out;
     out.totalVectors = result->total_vectors;
@@ -404,7 +439,7 @@ class Db {
     out.candidateReduction = result->candidate_reduction;
     out.hits.reserve(result->len);
     for (std::size_t i = 0; i < result->len; ++i) {
-      const roche_hit& hit = result->hits[i];
+      const kouten_hit& hit = result->hits[i];
       out.hits.push_back(Hit{hit.id, hit.score,
                              copyBytes(hit.payload, hit.payload_len)});
     }
@@ -414,38 +449,38 @@ class Db {
   std::string atlas(const std::vector<float>& queryVec = {},
                     int maxCentroidDims = 8) const {
     std::size_t len = 0;
-    void* ptr = roche_atlas(checked(), queryVec.data(), queryVec.size(),
+    void* ptr = kouten_atlas(checked(), queryVec.data(), queryVec.size(),
                             maxCentroidDims, &len);
     if (ptr == nullptr) {
       throw Error(lastError("atlas failed"));
     }
     std::string out(static_cast<char*>(ptr), len);
-    roche_free(ptr);
+    kouten_free(ptr);
     return out;
   }
 
   int locate(Id id, double at = -1.0) const {
-    return roche_locate(checked(), id, at);
+    return kouten_locate(checked(), id, at);
   }
 
   double nextVisit(Id id, int node) const {
-    return roche_next_visit(checked(), id, node);
+    return kouten_next_visit(checked(), id, node);
   }
 
   double nextJoin(Id a, Id b) const {
-    return roche_next_join(checked(), a, b);
+    return kouten_next_join(checked(), a, b);
   }
 
  private:
   explicit Db(void* handle) : handle_(handle) {
     if (handle_ == nullptr) {
-      throw Error(lastError("failed to open RocheDB"));
+      throw Error(lastError("failed to open KoutenDB"));
     }
   }
 
   void* checked() const {
     if (handle_ == nullptr) {
-      throw Error("RocheDB handle is closed");
+      throw Error("KoutenDB handle is closed");
     }
     return handle_;
   }
@@ -453,4 +488,4 @@ class Db {
   void* handle_ = nullptr;
 };
 
-}  // namespace rochedb
+}  // namespace koutendb

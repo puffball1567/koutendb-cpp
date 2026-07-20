@@ -1,6 +1,6 @@
-# RocheDB C++ Driver
+# KoutenDB C++ Driver
 
-C++17 RAII wrapper for RocheDB through the stable C ABI.
+C++17 RAII wrapper for KoutenDB through the stable C ABI.
 
 This repository is the generic OSS C++ driver. Unreal-specific module packaging,
 Blueprint bindings, editor tooling, and engine lifecycle integration should live
@@ -8,15 +8,16 @@ in a separate Unreal plugin.
 
 ## Status
 
-- package version: `0.1.1`
+- package version: `0.1.2`
 - license: Apache-2.0
-- mode: header-only C++ wrapper over `librochedb.so`
-- core ABI: RocheDB C ABI version `2`
+- mode: header-only C++ wrapper over `libkoutendb.so`
+- core ABI: KoutenDB C ABI version `2`
 
 Implemented:
 
 - embedded `open` / `openDir`
 - authenticated cluster `connectAuth`
+- TLS cluster `connectAuthTls`
 - `put` / `putVec`
 - codec-aware `putJson` / `putNif` / `putBif`
 - codec-aware vector writes: `putJsonVec` / `putNifVec` / `putBifVec`
@@ -38,21 +39,21 @@ Planned:
 
 One practical C++ use case is semi-durable structured local data: game settings, save metadata, player profiles, NPC memory, faction history, regional events, mod configuration, local catalogs, and AI/game context stores.
 
-For simulation games, RocheDB can act as a local context store for world, NPC, faction, event, and memory data that accumulates over time and should be retrieved selectively. Applications can still decide how much transient state belongs in RocheDB; the driver does not force a state-management pattern.
+For simulation games, KoutenDB can act as a local context store for world, NPC, faction, event, and memory data that accumulates over time and should be retrieved selectively. Applications can still decide how much transient state belongs in KoutenDB; the driver does not force a state-management pattern.
 
 ## Requirements
 
 - C++17 compiler
 - CMake 3.16 or newer
-- RocheDB core shared library: `lib/librochedb.so`
+- KoutenDB core shared library: `lib/libkoutendb.so`
 
-Build RocheDB core first:
+Build KoutenDB core first:
 
 ```sh
-git clone https://github.com/puffball1567/rochedb.git
-cd rochedb
+git clone https://github.com/puffball1567/koutendb.git
+cd koutendb
 nimble install -y
-nim c --app:lib -d:release --nimcache:/tmp/nimcache_roche_capi -o:lib/librochedb.so src/rochedb_capi.nim
+nim c --app:lib -d:release --nimcache:/tmp/nimcache_kouten_capi -o:lib/libkoutendb.so src/koutendb_capi.nim
 ```
 
 ## Build The Smoke Test
@@ -60,17 +61,17 @@ nim c --app:lib -d:release --nimcache:/tmp/nimcache_roche_capi -o:lib/librochedb
 From this repository:
 
 ```sh
-cmake -S . -B build -DROCHEDB_CORE_DIR=/path/to/rochedb
+cmake -S . -B build -DKOUTENDB_CORE_DIR=/path/to/koutendb
 cmake --build build
-./build/rochedb_cpp_contract_smoke
+./build/koutendb_cpp_contract_smoke
 ```
 
 Alternatively pass the library path directly:
 
 ```sh
-cmake -S . -B build -DROCHEDB_LIBRARY=/path/to/librochedb.so
+cmake -S . -B build -DKOUTENDB_LIBRARY=/path/to/libkoutendb.so
 cmake --build build
-LD_LIBRARY_PATH=/path/to ./build/rochedb_cpp_contract_smoke
+LD_LIBRARY_PATH=/path/to ./build/koutendb_cpp_contract_smoke
 ```
 
 ## Minimal Example
@@ -78,10 +79,10 @@ LD_LIBRARY_PATH=/path/to ./build/rochedb_cpp_contract_smoke
 ```cpp
 #include <iostream>
 #include <string>
-#include "rochedb/rochedb.hpp"
+#include "koutendb/koutendb.hpp"
 
 int main() {
-  auto db = rochedb::Db::openDir("data", 8);
+  auto db = koutendb::Db::openDir("data", 8);
   db.setRingDescription("docs/japan", "Japanese documentation");
 
   auto id = db.putJson("docs/japan", R"({"title":"hello"})");
@@ -96,14 +97,34 @@ int main() {
 }
 ```
 
+## TLS
+
+TLS requires an KoutenDB core built with `-d:ssl`. A library built without it
+fails a TLS connect with `TLS support requires building KoutenDB with -d:ssl`.
+
+To reach a server whose certificate is signed by a private CA — or is
+self-signed — point at the certificate PEM. Verification stays on:
+
+```cpp
+auto db = koutendb::Db::connectAuthTls(
+    "127.0.0.1:17651", "alice", "secret", "", "shared-secret", "",
+    "/path/to/server.crt");
+```
+
+The final `tlsInsecureSkipVerify` argument disables certificate verification.
+The connection is then encrypted but unauthenticated and trivially
+impersonable, so it is for local smoke tests only — never a production server.
+Prefer a `tlsCaFile` for self-signed certificates. See
+`examples/cluster_tls.cpp`.
+
 ## Library Discovery
 
-The C++ wrapper links to RocheDB's C ABI. For local builds, prefer one of:
+The C++ wrapper links to KoutenDB's C ABI. For local builds, prefer one of:
 
-- `-DROCHEDB_CORE_DIR=/path/to/rochedb`
-- `-DROCHEDB_LIBRARY=/path/to/librochedb.so`
-- environment variable `ROCHEDB_CORE_DIR`
-- environment variable `ROCHEDB_LIBRARY`
+- `-DKOUTENDB_CORE_DIR=/path/to/koutendb`
+- `-DKOUTENDB_LIBRARY=/path/to/libkoutendb.so`
+- environment variable `KOUTENDB_CORE_DIR`
+- environment variable `KOUTENDB_LIBRARY`
 
-The bundled `include/rochedb.h` is copied from RocheDB core and should match the
+The bundled `include/koutendb.h` is copied from KoutenDB core and should match the
 core library version you build against.
