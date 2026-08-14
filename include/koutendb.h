@@ -68,6 +68,10 @@ typedef struct kouten_batch_result {
 #define KOUTEN_CODEC_NIF  2
 #define KOUTEN_CODEC_BIF  3
 
+#define KOUTEN_METRICS_KEY_VALUE   0
+#define KOUTEN_METRICS_PROMETHEUS  1
+#define KOUTEN_METRICS_OPENMETRICS 2
+
 /* ABI バージョンと直近エラー。last_error はスレッドローカル相当で、所有権は呼び出し側にない。 */
 int         kouten_abi_version(void);
 const char *kouten_last_error(void);
@@ -79,6 +83,8 @@ void   kouten_init(void);
 void  *kouten_open(int nodes);
 /* 永続化つきで開く。dir の追記ログに書き、再オープンで復元される。 */
 void  *kouten_open_dir(int nodes, const char *dir);
+void  *kouten_open_dir_options(int nodes, const char *dir,
+                               int durability_strong, int disk_backed);
 /* クラスタへ接続。peers = "host:port,host:port,..."（koutend の並び順） */
 void  *kouten_connect(const char *peers);
 /* 認証つきクラスタ接続。不要な引数は NULL または空文字でよい。 */
@@ -105,6 +111,9 @@ void  *kouten_connect_auth_tls(const char *peers,
                           const char *tls_server_name,
                           int tls_insecure_skip_verify);
 void   kouten_close(void *db);
+void  *kouten_metrics_text(void *db, int format, size_t *out_len);
+void  *kouten_checkpoint_metrics_text(const char *root, int format,
+                                      size_t *out_len);
 
 /* DB 時計（PoC は決定論のため手動クロック）。 */
 double kouten_now(void *db);
@@ -140,6 +149,11 @@ int    kouten_put_vec_codec(void *db, const char *ring,
 void  *kouten_get(void *db, kouten_id id, size_t *out_len);
 /* Returns payload bytes and persisted codec. Buffer ownership matches kouten_get. */
 void  *kouten_get_codec(void *db, kouten_id id, size_t *out_len, int *out_codec);
+int    kouten_exists(void *db, kouten_id id);
+int    kouten_update(void *db, kouten_id id, const void *data, size_t len);
+int    kouten_update_codec(void *db, kouten_id id,
+                           const void *data, size_t len, int codec);
+int    kouten_remove(void *db, kouten_id id);
 void   kouten_free(void *p);
 /* 複数 ID のまとめ読み。戻り値は kouten_batch_get_free で解放。 */
 kouten_batch_result *kouten_batch_get(void *db, const kouten_id *ids, size_t ids_len);
@@ -186,6 +200,33 @@ void   kouten_retrieve_free(kouten_retrieve_result *r);
 /* Atlas JSON。LLM/agent が最初に読む galaxy/ring map。戻り値は kouten_free で解放。 */
 void  *kouten_atlas(void *db, const float *query_vec, size_t query_vec_len,
                    int max_centroid_dims, size_t *out_len);
+
+void  *kouten_segment_status_json(void *db, double stale_ratio,
+                                  int min_stale_records, size_t *out_len);
+void  *kouten_segment_maintenance_plan_json(void *db, double stale_ratio,
+                                            int min_stale_records,
+                                            int max_rings, int64_t max_bytes,
+                                            int64_t max_elapsed_ms,
+                                            size_t *out_len);
+void  *kouten_segment_maintenance_run_json(void *db, double stale_ratio,
+                                           int min_stale_records,
+                                           int max_rings, int64_t max_bytes,
+                                           int64_t max_elapsed_ms,
+                                           size_t *out_len);
+void  *kouten_segment_maintenance_status_json(void *db, size_t *out_len);
+int    kouten_segment_maintenance_recover(void *db, int *out_recovered);
+
+void  *kouten_checkpoint_create_json(void *db, const char *root,
+                                     const char *checkpoint_id,
+                                     size_t *out_len);
+void  *kouten_checkpoint_status_json(const char *checkpoint_dir,
+                                     size_t *out_len);
+void  *kouten_checkpoint_list_json(const char *root, size_t *out_len);
+void  *kouten_checkpoint_cleanup_json(const char *root, int keep,
+                                      size_t *out_len);
+void  *kouten_checkpoint_restore_json(const char *checkpoint_dir,
+                                      const char *data_dir, int overwrite,
+                                      size_t *out_len);
 
 /* 所在。at < 0 で「現在」。未来時刻も渡せる（ephemeris）。失敗時 -1。 */
 int    kouten_locate(void *db, kouten_id id, double at);
