@@ -1,4 +1,6 @@
 #include <cassert>
+#include <chrono>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -67,6 +69,57 @@ int main() {
   assert(located >= 0);
   assert(db.nextVisit(first, located) >= 0.0);
   assert(db.nextJoin(first, second) >= -1.0);
+
+  const auto nonce = std::to_string(std::chrono::steady_clock::now()
+                                        .time_since_epoch()
+                                        .count());
+  const auto dataDir = std::filesystem::temp_directory_path() /
+                       ("koutendb-cpp-v012-" + nonce);
+  const auto checkpointRoot = std::filesystem::path(dataDir.string() + "-checkpoints");
+  const auto restoredDir = std::filesystem::path(dataDir.string() + "-restored");
+  std::filesystem::create_directories(dataDir);
+  koutendb::OpenDirOptions openOptions;
+  openOptions.nodes = 1;
+  openOptions.strongDurability = true;
+  openOptions.diskBacked = true;
+  auto disk = koutendb::Db::openDir(dataDir.string(), openOptions);
+  auto mutableId = disk.put("docs/mutable", "before");
+  assert(disk.exists(mutableId));
+  disk.updateJson(mutableId, R"({"state":"after"})");
+  assert(disk.getEncoded(mutableId)->codec == koutendb::PayloadCodec::Json);
+  assert(disk.metrics(koutendb::MetricsFormat::Prometheus).find("koutendb_items") !=
+         std::string::npos);
+  koutendb::SegmentMaintenancePolicy policy;
+  policy.staleRatio = 0.0;
+  policy.minStaleRecords = 0;
+  policy.maxRings = 1;
+  policy.maxBytes = 1024 * 1024;
+  policy.maxElapsedMs = 1000;
+  assert(disk.planSegmentMaintenance(policy).find("decisions") != std::string::npos);
+  assert(disk.runSegmentMaintenance(policy).find("decisions") != std::string::npos);
+  assert(disk.segmentStatus(0.0, 0).find("rings") != std::string::npos);
+  assert(!disk.recoverSegmentMaintenance());
+  assert(disk.createCheckpoint(checkpointRoot.string(), "cpp-1")
+             .find(R"("verified":true)") != std::string::npos);
+  const auto checkpointDir = checkpointRoot / "cpp-1";
+  assert(koutendb::Db::checkpointStatus(checkpointDir.string())
+             .find(R"("reason":"verified")") != std::string::npos);
+  assert(koutendb::Db::listCheckpoints(checkpointRoot.string())
+             .find(R"("count":1)") != std::string::npos);
+  assert(koutendb::Db::checkpointMetrics(checkpointRoot.string(),
+                                         koutendb::MetricsFormat::OpenMetrics)
+             .find("# EOF") != std::string::npos);
+  disk.close();
+
+  koutendb::Db::restoreCheckpoint(checkpointDir.string(), restoredDir.string());
+  auto restored = koutendb::Db::openDir(restoredDir.string(), openOptions);
+  assert(restored.exists(mutableId));
+  restored.remove(mutableId);
+  assert(!restored.exists(mutableId));
+  restored.close();
+  std::filesystem::remove_all(dataDir);
+  std::filesystem::remove_all(checkpointRoot);
+  std::filesystem::remove_all(restoredDir);
 
   std::cout << "C++ driver OK\n";
   return 0;

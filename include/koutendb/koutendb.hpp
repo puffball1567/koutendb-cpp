@@ -23,6 +23,26 @@ enum class PayloadCodec {
   Bif = KOUTEN_CODEC_BIF,
 };
 
+enum class MetricsFormat {
+  KeyValue = KOUTEN_METRICS_KEY_VALUE,
+  Prometheus = KOUTEN_METRICS_PROMETHEUS,
+  OpenMetrics = KOUTEN_METRICS_OPENMETRICS,
+};
+
+struct OpenDirOptions {
+  int nodes = 8;
+  bool strongDurability = false;
+  bool diskBacked = false;
+};
+
+struct SegmentMaintenancePolicy {
+  double staleRatio = 0.25;
+  int minStaleRecords = 256;
+  int maxRings = 0;
+  std::int64_t maxBytes = 0;
+  std::int64_t maxElapsedMs = 0;
+};
+
 struct EncodedPayload {
   std::vector<std::uint8_t> payload;
   PayloadCodec codec = PayloadCodec::Raw;
@@ -88,6 +108,15 @@ inline std::vector<std::uint8_t> copyBytes(const void* data, std::size_t len) {
   return out;
 }
 
+inline std::string takeText(void* ptr, std::size_t len, const char* fallback) {
+  if (ptr == nullptr) {
+    throw Error(lastError(fallback));
+  }
+  std::string out(static_cast<char*>(ptr), len);
+  kouten_free(ptr);
+  return out;
+}
+
 class Db {
  public:
   Db() = default;
@@ -100,6 +129,14 @@ class Db {
   static Db openDir(std::string_view dir, int nodes = 8) {
     kouten_init();
     return Db(kouten_open_dir(nodes, std::string(dir).c_str()));
+  }
+
+  static Db openDir(std::string_view dir, const OpenDirOptions& options) {
+    kouten_init();
+    std::string path(dir);
+    return Db(kouten_open_dir_options(options.nodes, path.c_str(),
+                                      options.strongDurability ? 1 : 0,
+                                      options.diskBacked ? 1 : 0));
   }
 
   static Db connect(std::string_view peers) {
@@ -341,6 +378,37 @@ class Db {
     return out;
   }
 
+  bool exists(Id id) const {
+    int result = kouten_exists(checked(), id);
+    if (result < 0) {
+      throw Error(lastError("exists failed"));
+    }
+    return result != 0;
+  }
+
+  void update(Id id, std::string_view payload) {
+    if (kouten_update(checked(), id, payload.data(), payload.size()) != KOUTEN_OK) {
+      throw Error(lastError("update failed"));
+    }
+  }
+
+  void updateCodec(Id id, std::string_view payload, PayloadCodec codec) {
+    if (kouten_update_codec(checked(), id, payload.data(), payload.size(),
+                            codecCode(codec)) != KOUTEN_OK) {
+      throw Error(lastError("updateCodec failed"));
+    }
+  }
+
+  void updateJson(Id id, std::string_view json) {
+    updateCodec(id, json, PayloadCodec::Json);
+  }
+
+  void remove(Id id) {
+    if (kouten_remove(checked(), id) != KOUTEN_OK) {
+      throw Error(lastError("remove failed"));
+    }
+  }
+
   std::vector<std::optional<std::vector<std::uint8_t>>> batchGet(
       const std::vector<Id>& ids) const {
     kouten_batch_result* result = kouten_batch_get(checked(), ids.data(), ids.size());
@@ -459,6 +527,102 @@ class Db {
     return out;
   }
 
+  std::string metrics(MetricsFormat format = MetricsFormat::KeyValue) const {
+    std::size_t len = 0;
+    void* ptr = kouten_metrics_text(checked(), static_cast<int>(format), &len);
+    return takeText(ptr, len, "metrics failed");
+  }
+
+  std::string segmentStatus(double staleRatio = 0.25,
+                            int minStaleRecords = 256) const {
+    std::size_t len = 0;
+    void* ptr = kouten_segment_status_json(checked(), staleRatio,
+                                           minStaleRecords, &len);
+    return takeText(ptr, len, "segmentStatus failed");
+  }
+
+  std::string planSegmentMaintenance(
+      const SegmentMaintenancePolicy& policy = {}) const {
+    return segmentMaintenance(policy, false);
+  }
+
+  std::string runSegmentMaintenance(
+      const SegmentMaintenancePolicy& policy = {}) const {
+    return segmentMaintenance(policy, true);
+  }
+
+  std::string segmentMaintenanceStatus() const {
+    std::size_t len = 0;
+    void* ptr = kouten_segment_maintenance_status_json(checked(), &len);
+    return takeText(ptr, len, "segmentMaintenanceStatus failed");
+  }
+
+  bool recoverSegmentMaintenance() {
+    int recovered = 0;
+    if (kouten_segment_maintenance_recover(checked(), &recovered) != KOUTEN_OK) {
+      throw Error(lastError("segment maintenance recovery failed"));
+    }
+    return recovered != 0;
+  }
+
+  std::string createCheckpoint(std::string_view root = {},
+                               std::string_view checkpointId = {}) const {
+    std::string r(root);
+    std::string id(checkpointId);
+    std::size_t len = 0;
+    void* ptr = kouten_checkpoint_create_json(
+        checked(), r.empty() ? nullptr : r.c_str(),
+        id.empty() ? nullptr : id.c_str(), &len);
+    return takeText(ptr, len, "checkpoint creation failed");
+  }
+
+  static std::string checkpointStatus(std::string_view checkpointDir) {
+    kouten_init();
+    std::string path(checkpointDir);
+    std::size_t len = 0;
+    void* ptr = kouten_checkpoint_status_json(path.c_str(), &len);
+    return takeText(ptr, len, "checkpoint status failed");
+  }
+
+  static std::string listCheckpoints(std::string_view root) {
+    kouten_init();
+    std::string path(root);
+    std::size_t len = 0;
+    void* ptr = kouten_checkpoint_list_json(path.c_str(), &len);
+    return takeText(ptr, len, "checkpoint list failed");
+  }
+
+  static std::string cleanupCheckpoints(std::string_view root, int keep) {
+    kouten_init();
+    std::string path(root);
+    std::size_t len = 0;
+    void* ptr = kouten_checkpoint_cleanup_json(path.c_str(), keep, &len);
+    return takeText(ptr, len, "checkpoint cleanup failed");
+  }
+
+  static std::string restoreCheckpoint(std::string_view checkpointDir,
+                                       std::string_view dataDir,
+                                       bool overwrite = false) {
+    kouten_init();
+    std::string checkpoint(checkpointDir);
+    std::string data(dataDir);
+    std::size_t len = 0;
+    void* ptr = kouten_checkpoint_restore_json(
+        checkpoint.c_str(), data.c_str(), overwrite ? 1 : 0, &len);
+    return takeText(ptr, len, "checkpoint restore failed");
+  }
+
+  static std::string checkpointMetrics(
+      std::string_view root,
+      MetricsFormat format = MetricsFormat::KeyValue) {
+    kouten_init();
+    std::string path(root);
+    std::size_t len = 0;
+    void* ptr = kouten_checkpoint_metrics_text(
+        path.c_str(), static_cast<int>(format), &len);
+    return takeText(ptr, len, "checkpoint metrics failed");
+  }
+
   int locate(Id id, double at = -1.0) const {
     return kouten_locate(checked(), id, at);
   }
@@ -472,6 +636,20 @@ class Db {
   }
 
  private:
+  std::string segmentMaintenance(const SegmentMaintenancePolicy& policy,
+                                 bool run) const {
+    std::size_t len = 0;
+    void* ptr = run
+        ? kouten_segment_maintenance_run_json(
+              checked(), policy.staleRatio, policy.minStaleRecords,
+              policy.maxRings, policy.maxBytes, policy.maxElapsedMs, &len)
+        : kouten_segment_maintenance_plan_json(
+              checked(), policy.staleRatio, policy.minStaleRecords,
+              policy.maxRings, policy.maxBytes, policy.maxElapsedMs, &len);
+    return takeText(ptr, len, run ? "segment maintenance run failed"
+                                  : "segment maintenance plan failed");
+  }
+
   explicit Db(void* handle) : handle_(handle) {
     if (handle_ == nullptr) {
       throw Error(lastError("failed to open KoutenDB"));

@@ -8,26 +8,28 @@ in a separate Unreal plugin.
 
 ## Status
 
-- package version: `0.1.2`
+- package version: `0.1.3`
 - license: Apache-2.0
 - mode: header-only C++ wrapper over `libkoutendb.so`
 - core ABI: KoutenDB C ABI version `2`
 
 Implemented:
 
-- embedded `open` / `openDir`
+- embedded `open` / `openDir`, including strong durability and disk-backed options
 - authenticated cluster `connectAuth`
 - TLS cluster `connectAuthTls`
 - `put` / `putVec`
 - codec-aware `putJson` / `putNif` / `putBif`
 - codec-aware vector writes: `putJsonVec` / `putNifVec` / `putBifVec`
-- `get` / `getEncoded` / `batchGet`
+- `get` / `getEncoded` / `exists` / `batchGet`
+- `update` / `updateCodec` / `updateJson` / `remove`
 - ring reads through `readRingJson`
 - selection `query`
 - vector `retrieve`
 - `atlas`
 - `locate` / `nextVisit` / `nextJoin`
 - ring and galaxy descriptions
+- metrics, bounded segment maintenance, and immutable generation checkpoints
 
 Planned:
 
@@ -128,3 +130,10 @@ The C++ wrapper links to KoutenDB's C ABI. For local builds, prefer one of:
 
 The bundled `include/koutendb.h` is copied from KoutenDB core and should match the
 core library version you build against.
+
+The current wrapper also exposes the additive C ABI v2 persistence surface:
+
+- `OpenDirOptions` for strong durability and disk-backed reads;
+- `exists`, `update`, `updateCodec`, `updateJson`, and `remove`;
+- operational metrics and bounded segment maintenance;
+- immutable generation checkpoint create/status/list/cleanup/restore APIs.
