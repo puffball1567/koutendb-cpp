@@ -2,6 +2,10 @@
 
 C++17 RAII wrapper for KoutenDB through the stable C ABI.
 
+This branch also adds an independent native TCP client via `KoutenDB::tcp`.
+It requires no KoutenDB shared library. See [TCP setup, authentication, TLS and
+failure handling](docs/native-tcp.md). It is not yet in the published release.
+
 This repository is the generic OSS C++ driver. Unreal-specific module packaging,
 Blueprint bindings, editor tooling, and engine lifecycle integration should live
 in a separate Unreal plugin.
@@ -11,6 +15,7 @@ in a separate Unreal plugin.
 - package version: `0.1.3`
 - license: Apache-2.0
 - mode: header-only C++ wrapper over `libkoutendb.so`
+- additional mode on this branch: compiled native TCP client with no `libkoutendb` dependency
 - core ABI: KoutenDB C ABI version `2`
 
 Implemented:
@@ -33,7 +38,6 @@ Implemented:
 
 Planned:
 
-- native TCP driver path
 - package publishing workflow
 - broader compatibility matrix
 
@@ -43,7 +47,7 @@ One practical C++ use case is semi-durable structured local data: game settings,
 
 For simulation games, KoutenDB can act as a local context store for world, NPC, faction, event, and memory data that accumulates over time and should be retrieved selectively. Applications can still decide how much transient state belongs in KoutenDB; the driver does not force a state-management pattern.
 
-## Requirements
+## Embedded Requirements
 
 - C++17 compiler
 - CMake 3.16 or newer
@@ -55,7 +59,7 @@ Build KoutenDB core first:
 git clone https://github.com/puffball1567/koutendb.git
 cd koutendb
 nimble install -y
-nim c --app:lib -d:release --nimcache:/tmp/nimcache_kouten_capi -o:lib/libkoutendb.so src/koutendb_capi.nim
+bash scripts/build_capi.sh
 ```
 
 ## Build The Smoke Test

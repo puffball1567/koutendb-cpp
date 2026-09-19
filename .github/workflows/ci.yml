@@ -15,7 +15,16 @@ concurrency:
 jobs:
   test:
     timeout-minutes: 25
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            library: libkoutendb.so
+          - os: macos-latest
+            library: libkoutendb.dylib
     steps:
       - name: Checkout C++ driver
         uses: actions/checkout@v4
@@ -24,28 +33,47 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: puffball1567/koutendb
-          ref: v0.12.0
+          ref: e36b424bcfd9cd0dfa24ae121f4b4dd028b0eaac
           path: koutendb-core
 
       - name: Install Nim
+        if: runner.os == 'Linux'
         uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: "2.2.10"
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libsodium-dev cmake g++
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libsodium-dev libssl-dev pkg-config cmake g++
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install nim libsodium openssl@3 pkg-config
+          sodium="$(brew --prefix libsodium)"
+          ssl="$(brew --prefix openssl@3)"
+          echo "$ssl/bin" >> "$GITHUB_PATH"
+          echo "LIBRARY_PATH=$sodium/lib" >> "$GITHUB_ENV"
+          echo "CPATH=$sodium/include" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=$sodium/lib:$ssl/lib" >> "$GITHUB_ENV"
+          echo "OPENSSL_ROOT_DIR=$ssl" >> "$GITHUB_ENV"
 
       - name: Build KoutenDB C ABI
         run: |
           cd koutendb-core
           nimble install -y
-          nim c --app:lib -d:release --nimcache:/tmp/nimcache_kouten_capi -o:lib/libkoutendb.so src/koutendb_capi.nim
+          KOUTENDB_CAPI_OUT=lib/${{ matrix.library }} bash scripts/build_capi.sh
 
       - name: Configure CMake
-        run: cmake -S . -B build -DKOUTENDB_CORE_DIR="${{ github.workspace }}/koutendb-core"
+        run: cmake -S . -B build -DKOUTENDB_LIBRARY="${{ github.workspace }}/koutendb-core/lib/${{ matrix.library }}" -DKOUTENDB_CPP_BUILD_TCP=ON -DKOUTENDB_CPP_FETCH_DEPS=ON -DKOUTENDB_CPP_TCP_TESTS=ON
 
       - name: Build smoke
         run: cmake --build build --verbose
 
       - name: Run smoke
         run: ./build/koutendb_cpp_contract_smoke
+
+      - name: Test native TCP
+        run: |
+          ctest --test-dir build --output-on-failure
+          bash koutendb-core/scripts/native_driver_conformance.sh "$PWD/build/koutendb_tcp_adapter"
