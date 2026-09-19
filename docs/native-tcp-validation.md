@@ -22,8 +22,8 @@ an empty main (5 failures in 30 launches). The sanitizer-only executable was
 rebuilt with -fno-pie/-no-pie; the complete matrix then passed. This does not
 change production compiler flags, disable sanitizers or suppress findings.
 
-Linux/macOS workflow coverage is configured but has not yet been run on GitHub
-for this branch. These results are not a release publication, load test or
-long-duration operational certification.
+The GitHub workflow runs the shared conformance matrix on Linux and macOS.
+See the release commit's workflow checks for CI results. The local results above
+are correctness/integration checks, not load or long-duration operational tests.
 
 See [native TCP usage and reproduction commands](native-tcp.md).

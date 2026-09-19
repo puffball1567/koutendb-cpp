@@ -2,9 +2,9 @@
 
 C++17 RAII wrapper for KoutenDB through the stable C ABI.
 
-This branch also adds an independent native TCP client via `KoutenDB::tcp`.
+Version 0.2.0 adds an independent native TCP client via `KoutenDB::tcp`.
 It requires no KoutenDB shared library. See [TCP setup, authentication, TLS and
-failure handling](docs/native-tcp.md). It is not yet in the published release.
+failure handling](docs/native-tcp.md).
 
 This repository is the generic OSS C++ driver. Unreal-specific module packaging,
 Blueprint bindings, editor tooling, and engine lifecycle integration should live
@@ -12,10 +12,10 @@ in a separate Unreal plugin.
 
 ## Status
 
-- package version: `0.1.3`
+- package version: `0.2.0`
 - license: Apache-2.0
 - mode: header-only C++ wrapper over `libkoutendb.so`
-- additional mode on this branch: compiled native TCP client with no `libkoutendb` dependency
+- additional mode: compiled native TCP client with no `libkoutendb` dependency
 - core ABI: KoutenDB C ABI version `2`
 
 Implemented:

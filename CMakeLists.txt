@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(koutendb_cpp VERSION 0.1.3 LANGUAGES CXX)
+project(koutendb_cpp VERSION 0.2.0 LANGUAGES CXX)
 
 add_library(koutendb_cpp INTERFACE)
 add_library(KoutenDB::cpp ALIAS koutendb_cpp)

@@ -1,4 +1,4 @@
-# Native TCP (Development)
+# Native TCP
 
 The existing header-only C ABI wrapper remains unchanged. The optional
 `KoutenDB::tcp` target is a compiled C++17 client with no libkoutendb dependency.
